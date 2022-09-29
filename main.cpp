@@ -1,6 +1,7 @@
 #ifndef Elem_t
     #include "stackType.h"
 #endif
+#define PROTECTION 7
 #include "stack.h"
 #include <cstdio>
 #include <string.h>
@@ -25,10 +26,8 @@ int main() {
             printf("%d\n", stackPop(&stack, &er));
         } else
             stackPush(&stack, k);
-        stackDump(&stack);
     }
 
     stackDtor(&stack);
-    logClose();
     return 0;
 }
