@@ -56,13 +56,13 @@ struct Stack {
         Elem_t *data     = (Elem_t *) calloc(1, sizeof(Elem_t));
     #endif
 
-    size_t  size     =                                       0                                   ;
-    size_t  capacity =                                       1                                   ;
-    int     koef     =                                       2                                   ;
+    size_t  size     = 0;
+    size_t  capacity = 1;
+    int     koef     = 2;
 
     #if (PROTECTION & STACK_CANARY_PROTECTION)
         uint64_t LftVictimToGods = 0xDED33DEAD;
-        uint64_t RgtVictimToGods = 0xDEAD33DED;
+        uint64_t RgtVictimToGods = 0xBAD99F00D;
     #endif
 
     void (*printElem_t) (FILE *stream, const Elem_t stackElement) = nullptr;
@@ -82,8 +82,9 @@ const int dumpFree = 1;
     const Elem_t POISON = 1e9 + 17;
 #endif
 
+FILE *logFile = fopen("logs.txt", "w");
+
 #if (PROTECTION & STACK_LOG_INFO)
-    FILE *logFile = fopen("logs.txt", "w");
     #define stackDump(stack) { stackDump_((stack), __PRETTY_FUNCTION__, FILENAME_, __LINE__);}
 #endif
 
@@ -116,15 +117,17 @@ bool structGnuHashError(Stack *stack);
 bool dataGnuHashError(Stack *stack);
 
 void stackMakeHash(Stack *stack);
-#endif
 
 uint64_t getGnuHash(const void *memPointer, size_t totalBytes);
+#endif
 
+#if (PROTECTION & STACK_LOG_INFO)
 int stackError(Stack *stack);
 
 void stackDump_(Stack *stack, const char* functionName, const char *fileName, unsigned line);
 
 void printErrorMessage(int error);
+#endif
 
 int stackConstructor(Stack *stack, const char* variableName, const char* declarationFunc, const char* declarationPlace, const unsigned line, void (*printElem_t)(FILE *stream, const Elem_t stackElement) = nullptr) {
     if (stack == nullptr)
@@ -149,10 +152,11 @@ int stackConstructor(Stack *stack, const char* variableName, const char* declara
                Constructed  ,
     };
 
-#ifdef STACK_HASH_PROTECTION
+#if (STACK_HASH_PROTECTION & PROTECTION)
     stack -> dataGnuHash   = getGnuHash(stack -> data, sizeof(Elem_t) * stack -> capacity);
     stack -> structGnuHash = getGnuHash(stack, sizeof(Stack) - sizeof(uint64_t));
 #endif
+
     return StackOk;
 }
 
@@ -160,7 +164,7 @@ int stackDtor(Stack *stack) {
     if (!stack->info.active)
         return StackDoubleDestruction;
 
-#ifdef STACK_CANARY_PROTECTION
+#if (STACK_CANARY_PROTECTION & PROTECTION)
     free((char *) stack -> data - sizeof(uint64_t));
 #else
     free((char *) stack -> data);
@@ -185,7 +189,7 @@ int stackPush(Stack *stack, Elem_t value)  {
         return er;
     }
 
-    stack -> data[stack -> size++] = value;
+    stack -> data[++stack -> size] = value;
 
     #if (PROTECTION & STACK_HASH_PROTECTION)
         stackMakeHash(stack);
@@ -227,9 +231,10 @@ Elem_t stackPop(Stack *stack, int *er) {
     }
 
     Elem_t value = stack -> data[--(stack -> size)];
-#if (PROTECTION & STACK_HASH_PROTECTION)
-    stackMakeHash(stack);
-#endif
+    stack -> data[stack -> size] = POISON;
+    #if (PROTECTION & STACK_HASH_PROTECTION)
+        stackMakeHash(stack);
+    #endif
 
     if (stackResize(stack, er)) {
         if (er != nullptr) {
@@ -257,11 +262,12 @@ int stackResize(Stack *stack, int *er) {
     }
 
     if (stack->size == stack->capacity) {
-#if (PROTECTION & STACK_CANARY_PROTECTION)
-        stack->data = (Elem_t *) recalloc((char *) stack->data - sizeof(uint64_t), stack->size, stack->capacity * stack->koef, sizeof(Elem_t));
-#else
-        stack->data = (Elem_t *) recalloc((char *) stack->data, stack->size, stack->capacity * stack->koef, sizeof(Elem_t));
-#endif
+        #if (PROTECTION & STACK_CANARY_PROTECTION)
+            stack->data = (Elem_t *) recalloc((char *) stack->data - sizeof(uint64_t), stack->size, stack->capacity * stack->koef, sizeof(Elem_t));
+        #else
+            stack->data = (Elem_t *) recalloc((char *) stack->data, stack->size, stack->capacity * stack->koef, sizeof(Elem_t));
+        #endif
+
         stack->capacity *= stack->koef;
 
         #if (PROTECTION & STACK_CANARY_PROTECTION)
@@ -273,14 +279,15 @@ int stackResize(Stack *stack, int *er) {
         #endif
     }
     if (stack->size < (stack->capacity) / (2 * stack->koef)) {
-    #if (PROTECTION & STACK_CANARY_PROTECTION)
-        stack->data = (Elem_t *) recalloc((char *) stack->data - sizeof(uint64_t), stack->size, stack->capacity / (2 * stack->koef), sizeof(Elem_t));
-    #else
-        stack->data = (Elem_t *) recalloc((char *) stack->data, stack->size, stack->capacity * stack->koef, sizeof(Elem_t));
-    #endif
+        #if (PROTECTION & STACK_CANARY_PROTECTION)
+            stack->data = (Elem_t *) recalloc((char *) stack->data - sizeof(uint64_t), stack->size, stack->capacity / (2 * stack->koef), sizeof(Elem_t));
+        #else
+            stack->data = (Elem_t *) recalloc((char *) stack->data, stack->size, stack->capacity * stack->koef, sizeof(Elem_t));
+        #endif
+
         stack->capacity /= (2 * stack->koef);
 
-    #if (PROTECTION & STACK_CANARY_PROTECTION)
+        #if (PROTECTION & STACK_CANARY_PROTECTION)
             *(uint64_t *) ((char *) stack -> data + sizeof(Elem_t) * stack -> capacity) = stack -> RgtVictimToGods;
         #endif
 
@@ -288,8 +295,6 @@ int stackResize(Stack *stack, int *er) {
             stackMakeHash(stack);
         #endif
     }
-
-    stackDump(stack);
 
     if (er != nullptr) {
         *er = stackError(stack);
@@ -310,16 +315,17 @@ void *recalloc(void *memPointer, size_t numberOfElements, size_t needNumOfElemen
         return nullptr;
 
     #if (PROTECTION & STACK_CANARY_PROTECTION)
-        memPointer = realloc(memPointer, needNumOfElements * sizeOfElement + 2 * sizeof(uint64_t));
+    memPointer = realloc(memPointer, needNumOfElements * sizeOfElement + 2 * sizeof(uint64_t));
     #else
-        memPointer = realloc(memPointer, needNumOfElements * sizeOfElement);
+    memPointer = realloc(memPointer, needNumOfElements * sizeOfElement);
     #endif
 
     if (memPointer == nullptr)
         return nullptr;
-#if (PROTECTION & STACK_CANARY_PROTECTION)
+
+    #if (PROTECTION & STACK_CANARY_PROTECTION)
     memPointer = (char *) memPointer + sizeof(uint64_t);
-#endif
+    #endif
 
     null((char*) memPointer + numberOfElements * sizeOfElement, sizeOfElement * (needNumOfElements - numberOfElements));
 
@@ -349,32 +355,7 @@ void null(void *memPointer, size_t size) {
         filled += sizeof(uint16_t);
     }
 
-    while (filled + sizeof(uint8_t) <= size) {
-        *(uint8_t *) memPointer = 0;
-        memPointer = (char *) memPointer + sizeof(uint8_t);
-        filled += sizeof(uint8_t);
-    }
 }
-
-#if (PROTECTION & STACK_CANARY_PROTECTION)
-void stackPrepareVictims(Stack *stack) {
-    if (stack == nullptr)
-        return;
-
-    *(uint64_t *) ((char *) stack -> data - sizeof(uint64_t))                   = stack -> LftVictimToGods;
-    *(uint64_t *) ((char *) stack -> data + sizeof(Elem_t) * stack -> capacity) = stack -> RgtVictimToGods;
-}
-#endif
-
-#if (PROTECTION & STACK_HASH_PROTECTION)
-void stackMakeHash(Stack *stack) {
-    if (stack == nullptr)
-        return;
-
-    stack -> dataGnuHash   = getGnuHash(stack -> data, sizeof(Elem_t) * stack -> capacity);
-    stack -> structGnuHash = getGnuHash(stack, sizeof(Stack) - sizeof(uint64_t));
-}
-#endif
 
 int stackError(Stack *stack) {
     int error = 0;
@@ -424,14 +405,24 @@ int stackError(Stack *stack) {
 }
 
 #if (PROTECTION & STACK_CANARY_PROTECTION)
+void stackPrepareVictims(Stack *stack) {
+    if (stack == nullptr)
+        return;
+
+    *(uint64_t *) ((char *) stack -> data - sizeof(uint64_t))                   = stack -> LftVictimToGods;
+    *(uint64_t *) ((char *) stack -> data + sizeof(Elem_t) * stack -> capacity) = stack -> RgtVictimToGods;
+}
+
 bool LftCanBirdError(Stack *stack) {
-    assert(stack != nullptr);
+    if (stack == nullptr)
+        return false;
 
     return (*(uint64_t *)((char *) stack -> data - sizeof(uint64_t))                   != stack -> LftVictimToGods);
 }
 
 bool RgtCanBirdError(Stack *stack) {
-    assert(stack != nullptr);
+    if (stack == nullptr)
+        return false;
 
     return (*(uint64_t *)((char *) stack -> data + sizeof(Elem_t) * stack -> capacity) != stack -> RgtVictimToGods);
 }
@@ -447,6 +438,15 @@ bool dataGnuHashError(Stack *stack) {
 }
 #endif
 
+#if (PROTECTION & STACK_HASH_PROTECTION)
+void stackMakeHash(Stack *stack) {
+    if (stack == nullptr)
+        return;
+
+    stack -> dataGnuHash   = getGnuHash(stack -> data, sizeof(Elem_t) * stack -> capacity);
+    stack -> structGnuHash = getGnuHash(stack, sizeof(Stack) - sizeof(uint64_t));
+}
+
 uint64_t getGnuHash(const void *memPointer, size_t totalBytes) {
     uint64_t hash = 5381;
 
@@ -457,12 +457,14 @@ uint64_t getGnuHash(const void *memPointer, size_t totalBytes) {
 
     return hash;
 }
+#endif
 
 size_t max(size_t aParam, size_t bParam);
 
 #if (PROTECTION & STACK_LOG_INFO)
 void myfPrintf(FILE *stream = nullptr, const char *format = nullptr, ...) {
-    assert(format != nullptr);
+    if (format == nullptr)
+        return;
 
     va_list arguments;
     va_start (arguments, format);
@@ -554,13 +556,12 @@ void printErrorMessage(int error) {
     if (error & (1 << 13))
         myfPrintf(logFile, "%zu)  The struct Stack is damaged!\n",                                           currentError++);
 
-    logClose();
 }
+#endif
 
 void logClose()  {
     fclose(logFile);
 }
-#endif
 
 size_t max(size_t aParam, size_t bParam) {
     if (aParam > bParam)
