@@ -162,13 +162,12 @@ int stackConstructor(Stack *stack, const char* variableName, const char* declara
 }
 
 int stackDtor(Stack *stack) {
-    if (!stack->status)
-        return StackDoubleDestruction;
+    int err = stackError(stack);
+    if (err)
+        return err;
 
     #if (STACK_CANARY_PROTECTION & PROTECTION)
         free((char *) stack -> data - sizeof(uint64_t));
-    #else
-        free((char *) stack -> data);
     #endif
     stack -> data = nullptr;
 
@@ -339,8 +338,8 @@ void fillPoison(Elem_t *memPointer, size_t size) {
 
     while (filled < size) {
         *memPointer = POISON;
-        ++filled;
         ++memPointer;
+        ++filled;
     }
 }
 
