@@ -168,6 +168,8 @@ int stackDtor(Stack *stack) {
 
     #if (STACK_CANARY_PROTECTION & PROTECTION)
         free((char *) stack -> data - sizeof(uint64_t));
+    #else
+        free((char *) stack -> data);
     #endif
     stack -> data = nullptr;
 
@@ -197,7 +199,7 @@ int stackPush(Stack *stack, Elem_t value)  {
         return er;
     }
 
-    stack -> data[stack -> size++] = value;
+    stack -> data[++stack -> size] = value;
 
     stackDump(stack);
 
